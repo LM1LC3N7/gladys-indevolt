@@ -1,177 +1,87 @@
 {
   "manifest_version": 1,
   "type": "device",
-  "name": "Demo Devices Template",
+  "name": "Indevolt",
   "description": {
-    "en": "Starter template showing sensors, a switch, a dimmable light and a smart plug.",
-    "fr": "Template de démarrage : capteurs, interrupteur, lampe variable et prise connectée."
+    "en": "Unofficial: Indevolt home batteries on your network: charge, powers, solar, energy indexes.",
+    "fr": "Non officiel : batteries Indevolt en local : charge, puissances, solaire, index d'énergie."
   },
-  "version": "1.0.0",
-  "docker_image": "ghcr.io/gladysassistant/integration-template-js:1.0.0",
-  "gladys_version": ">=5.1.0",
-  "cover_image": "https://raw.githubusercontent.com/GladysAssistant/integration-template-js/master/cover.png",
-  "categories": ["lighting", "security", "environment"],
-  "transports": ["local", "cloud"],
+  "version": "0.1.0",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-indevolt:0.1.0",
+  "gladys_version": ">=5.2.0",
+  "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-indevolt/main/cover.png",
+  "categories": ["energy"],
+  "transports": ["local"],
+  "network_discovery": [{ "type": "udp-broadcast", "ports": [8099] }],
   "config_schema": [
     {
       "key": "intro",
       "type": "section",
-      "label": { "en": "Getting started", "fr": "Pour commencer" },
+      "label": { "en": "Indevolt batteries", "fr": "Batteries Indevolt" },
       "description": {
-        "en": "The demo weather station reads real data from the free Open-Meteo API: pick the coordinates to observe. No account, no API key.",
-        "fr": "La station météo de démonstration lit de vraies données via l'API gratuite Open-Meteo : choisissez les coordonnées à observer. Pas de compte, pas de clé d'API."
+        "en": "Unofficial connector, not affiliated with Indevolt. It reads your Indevolt home batteries (SolidFlex, PowerFlex, BK1600...) through their local API (HTTP, port 8080), without any cloud nor account, every 30 seconds: state of charge, charge and discharge power, solar power, AC output, temperatures, and energy indexes for the Gladys energy monitoring. Read-only: it never starts a charge or a discharge and never changes a mode or a limit. Open the \"Discover\" tab (the batteries announce themselves on the network), or type their addresses below. Never tested with a real Indevolt battery.",
+        "fr": "Connecteur non officiel, sans lien avec Indevolt. Il lit vos batteries domestiques Indevolt (SolidFlex, PowerFlex, BK1600...) par leur API locale (HTTP, port 8080), sans cloud ni compte, toutes les 30 secondes : niveau de charge, puissances de charge et de décharge, puissance solaire, sortie AC, températures, et des index d'énergie pour le suivi énergétique de Gladys. Lecture seule : il ne lance jamais de charge ni de décharge et ne change jamais un mode ou une limite. Ouvrez l'onglet « Découverte » (les batteries s'annoncent sur le réseau), ou saisissez leurs adresses ci-dessous. Jamais testé avec une vraie batterie Indevolt."
       },
       "links": [
         {
-          "url": "https://open-meteo.com/en/docs",
-          "label": { "en": "Open-Meteo documentation", "fr": "Documentation Open-Meteo" }
+          "url": "https://github.com/LM1LC3N7/gladys-indevolt/blob/main/docs/fr.md",
+          "label": { "en": "Guide (French)", "fr": "Guide (français)" }
+        },
+        {
+          "url": "https://github.com/LM1LC3N7/gladys-indevolt/blob/main/docs/en.md",
+          "label": { "en": "Guide (English)", "fr": "Guide (anglais)" }
         }
       ]
     },
     {
-      "key": "latitude",
-      "type": "number",
-      "label": { "en": "Latitude", "fr": "Latitude" },
-      "description": {
-        "en": "Latitude used for the demo weather sensor.",
-        "fr": "Latitude utilisée par le capteur météo de démonstration."
-      },
-      "placeholder": { "en": "e.g. 48.8566", "fr": "ex. 48.8566" },
-      "required": true,
-      "default": 48.8566,
-      "min": -90,
-      "max": 90
-    },
-    {
-      "key": "longitude",
-      "type": "number",
-      "label": { "en": "Longitude", "fr": "Longitude" },
-      "description": {
-        "en": "Longitude used for the demo weather sensor.",
-        "fr": "Longitude utilisée par le capteur météo de démonstration."
-      },
-      "placeholder": { "en": "e.g. 2.3522", "fr": "ex. 2.3522" },
-      "required": true,
-      "default": 2.3522,
-      "min": -180,
-      "max": 180
-    },
-    {
-      "key": "unit",
-      "type": "select",
-      "label": { "en": "Temperature unit", "fr": "Unité de température" },
+      "key": "addresses",
+      "type": "string",
       "required": false,
-      "default": "celsius",
-      "options": [
-        { "value": "celsius", "label": { "en": "Celsius", "fr": "Celsius" } },
-        { "value": "fahrenheit", "label": { "en": "Fahrenheit", "fr": "Fahrenheit" } }
-      ]
+      "label": {
+        "en": "Battery IP addresses (optional)",
+        "fr": "Adresses IP des batteries (facultatif)"
+      },
+      "description": {
+        "en": "Discovery finds the batteries that announce themselves. Type the others here, separated by commas, with :port only if it is not 8080 (at most 6). Preferably give them a fixed address in your router; if one changes, its device and history are kept.",
+        "fr": "Découverte trouve les batteries qui s'annoncent. Saisissez les autres ici, séparées par des virgules, avec :port seulement s'il n'est pas 8080 (6 au plus). Donnez-leur de préférence une adresse fixe dans votre box ; si l'une change, son appareil et son historique sont gardés."
+      },
+      "placeholder": {
+        "en": "e.g. 192.168.1.40, 192.168.1.41",
+        "fr": "ex. 192.168.1.40, 192.168.1.41"
+      }
     },
     {
-      "key": "poll_frequency",
+      "key": "poll_interval",
       "type": "number",
-      "label": { "en": "Refresh interval (s)", "fr": "Intervalle de rafraîchissement (s)" },
-      "description": {
-        "en": "How often sensors are polled, in seconds (one minute minimum).",
-        "fr": "Fréquence d'interrogation des capteurs, en secondes (une minute minimum)."
-      },
       "required": false,
-      "default": 300,
-      "min": 60,
-      "max": 3600
+      "default": 30,
+      "min": 30,
+      "max": 300,
+      "label": { "en": "Reading interval (s)", "fr": "Intervalle de lecture (s)" },
+      "description": {
+        "en": "How often each battery is read: 30 s as Home Assistant, more if you wish. With more than three batteries, each one is read a little less often (10 s per battery), to stay within the limits of Gladys.",
+        "fr": "Fréquence de lecture de chaque batterie : 30 s comme Home Assistant, plus si vous le souhaitez. Au-delà de trois batteries, chacune est lue un peu moins souvent (10 s par batterie), pour rester dans les limites de Gladys."
+      }
     }
   ],
   "actions": [
     {
-      "key": "test_weather",
-      "label": { "en": "Test the weather provider", "fr": "Tester le fournisseur météo" },
-      "timeout_seconds": 30
+      "key": "test_connection",
+      "timeout_seconds": 30,
+      "label": { "en": "Test the connection", "fr": "Tester la connexion" },
+      "description": {
+        "en": "Asks each known battery once who it is (model, serial, firmware). Sends nothing else.",
+        "fr": "Demande une fois à chaque batterie connue qui elle est (modèle, numéro de série, firmware). N'envoie rien d'autre."
+      }
     },
     {
-      "key": "identify",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ]
-    }
-  ],
-  "scene_triggers": [
-    {
-      "key": "motion_detected",
-      "label": { "en": "Motion detected", "fr": "Mouvement détecté" },
+      "key": "accept_held_index",
+      "timeout_seconds": 30,
+      "label": { "en": "Accept the held index", "fr": "Accepter l'index retenu" },
       "description": {
-        "en": "A demo motion sensor saw a person or an animal move.",
-        "fr": "Un détecteur de démonstration a vu bouger une personne ou un animal."
-      },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Sensor", "fr": "Détecteur" }
-        },
-        {
-          "key": "target",
-          "type": "multi_select",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" },
-          "options": [
-            { "value": "person", "label": { "en": "Person", "fr": "Personne" } },
-            { "value": "animal", "label": { "en": "Animal", "fr": "Animal" } }
-          ]
-        }
-      ],
-      "variables": [
-        {
-          "key": "target",
-          "type": "string",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" }
-        }
-      ]
-    }
-  ],
-  "scene_actions": [
-    {
-      "key": "identify_device",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "description": {
-        "en": "Make a device signal itself (the demo light blinks).",
-        "fr": "Fait se signaler un appareil (la lampe de démonstration clignote)."
-      },
-      "timeout_seconds": 15,
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ],
-      "outputs": [
-        {
-          "key": "signalled",
-          "type": "boolean",
-          "label": { "en": "Device signalled", "fr": "Appareil signalé" }
-        }
-      ]
-    }
-  ],
-  "widgets": [
-    {
-      "key": "demo_status",
-      "label": { "en": "Demo status", "fr": "État de la démo" },
-      "description": {
-        "en": "Live temperature and plug power, plug connection and observed location.",
-        "fr": "Température et puissance en direct, connexion de la prise, position observée."
-      },
-      "icon": "activity",
-      "action_timeout_seconds": 15
+        "en": "Only when the status shows an energy index held back (a jump or a drop) and it is right. First click: lists what is held, accepts nothing. Second click within 5 minutes: accepts exactly what was listed. A jump is then counted at once; a drop counts nothing. Saving the configuration never accepts it.",
+        "fr": "Seulement quand l'état affiche un index d'énergie retenu (un saut ou une baisse) et qu'il est juste. Premier clic : liste ce qui est retenu, n'accepte rien. Second clic dans les 5 minutes : accepte exactement ce qui a été listé. Un saut est alors compté d'un coup ; une baisse ne compte rien. Enregistrer la configuration ne l'accepte jamais."
+      }
     }
   ]
 }

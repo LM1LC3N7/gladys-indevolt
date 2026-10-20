@@ -1,67 +1,96 @@
-# Template de démonstration
+# Indevolt
 
-Ceci est la documentation utilisateur de l'intégration. Gladys ré-héberge ce
-fichier et affiche un lien **Documentation** permanent vers lui dans l'écran
-de configuration (dans la langue de l'utilisateur, avec l'anglais en repli) —
-c'est au moment de configurer que l'utilisateur en a le plus besoin. Gardez
-les courtes indications d'accueil dans les blocs `section` du `config_schema`
-du manifest ; mettez ici le pas-à-pas détaillé (captures d'écran, dépannage…).
+Intégration **non officielle**, sans lien avec Indevolt. Elle lit vos
+batteries domestiques **Indevolt** (SolidFlex, PowerFlex, BK1600…) sur votre
+réseau local, par leur API locale (HTTP, port 8080), sans cloud ni compte.
+
+**Jamais testé avec un vrai appareil** : l'intégration a été écrite d'après la
+bibliothèque [indevolt-api](https://github.com/Xirt/indevolt-api) utilisée par
+Home Assistant, sans batterie Indevolt sous la main. Le protocole local n'est
+pas documenté par Indevolt. Vos retours sont les bienvenus.
+
+## Lecture seule
+
+L'intégration **ne fait que lire**. Elle ne lance jamais de charge ni de
+décharge, ne change jamais le mode d'énergie, la réserve de secours ou une
+limite de puissance. Le mode d'énergie et la réserve sont affichés, pas
+modifiables : utilisez l'application Indevolt pour les changer.
 
 ## Ce que vous obtenez
 
-Six appareils de démonstration apparaissent après l'installation : une
-station météo (vraies données Open-Meteo), un interrupteur, une lampe
-variable, une prise connectée avec mesure de puissance, un détecteur de
-mouvement et une caméra.
+Un appareil par batterie, identifié par son numéro de série (une nouvelle
+adresse IP garde l'appareil et son historique) :
+
+- niveau de charge (%), puissances de charge et de décharge (W), puissance
+  de la batterie (W, signée), état (0 = au repos, 1 = en charge, 2 = en
+  décharge) ;
+- puissance solaire totale et par entrée (W), puissance de sortie AC vers la
+  maison (W), puissance d'entrée AC, puissance de bypass, puissance du
+  compteur (W, signe non documenté) ;
+- tension et fréquence du réseau (2e génération), températures de la batterie
+  et de l'onduleur ;
+- mode d'énergie (0 = portable/extérieur, 1 = autoconsommation, 4 = pilotage
+  temps réel, 5 = programme), mode de fonctionnement (0 = principal,
+  1 = secondaire, 2 = autonome), capacité nominale, réserve de secours, cycles
+  et temps restants (2e génération) ;
+- les compteurs du jour (solaire, chargé, déchargé) en capteurs simples ;
+- **cinq index d'énergie** pour le suivi énergétique de Gladys : énergie
+  chargée et déchargée, énergie de sortie AC, énergie de sortie hors réseau,
+  production solaire (avec sa production par demi-heure, calculée par
+  Gladys).
+
+La batterie ne mesure pas ce que la maison prend au réseau : l'intégration ne
+crée **aucun index de consommation** facturé.
+
+## Prérequis
+
+- Gladys 5.2.0 ou plus récent.
+- La batterie sur le même réseau que Gladys, son API locale joignable sur le
+  port 8080.
 
 ## Configuration
 
-1. Ouvrez l'onglet **Configuration** de l'intégration.
-2. Renseignez la **latitude** et la **longitude** que la station météo de
-   démonstration doit observer (Paris par défaut), et choisissez votre unité
-   de température. L'**intervalle de rafraîchissement** règle la fréquence
-   de lecture de la station météo et de la puissance de la prise : toutes
-   les 5 minutes par défaut, toutes les minutes au plus.
-3. Enregistrez : les appareils apparaissent dans l'onglet **Découverte**,
-   prêts à être ajoutés.
+1. Installez l'intégration depuis le store de Gladys.
+2. Ouvrez l'onglet **Découverte** : les batteries s'annoncent sur le réseau
+   (diffusion UDP sur le port 8099, écoutée par Gladys). Ou saisissez leurs
+   adresses IP dans **Adresses IP des batteries**, séparées par des virgules
+   (avec `:port` seulement si ce n'est pas 8080), six au plus.
+3. Créez l'appareil de chaque batterie depuis l'onglet **Découverte**.
+4. **Intervalle de lecture** : 30 s par défaut (comme Home Assistant), de 30 à
+   300 s. Au-delà de trois batteries, chacune est lue un peu moins souvent
+   (10 s par batterie), pour rester sous les 300 états par minute de Gladys.
 
-Le réglage **Préférer la connexion locale** pilote la prise de
-démonstration : elle affiche en badge le canal réellement utilisé (local ou
-cloud), avec un point orange quand elle fonctionne en mode dégradé (local
-refusé, bascule cloud).
+Le bouton **Tester la connexion** demande une fois à chaque batterie son
+modèle, son numéro de série et son firmware.
 
-## Actions
+## Index d'énergie retenus
 
-- **Tester le fournisseur météo** — effectue une requête en direct vers
-  Open-Meteo et affiche la température et l'humidité actuelles sous le
-  bouton.
-- **Identifier un appareil** — choisissez un de vos appareils dans la liste
-  et il se signale (la lampe de démonstration « clignote » dans les logs).
+Gladys compte chaque hausse d'un index en entier. Pour ne jamais compter une
+énergie fictive, chaque index passe par une garde :
 
-## Scènes
+- une valeur à 0 n'est jamais envoyée (un index hors réseau jamais utilisé
+  reste vide) ;
+- une baisse, ou une hausse plus rapide que 15 kW en moyenne, est **retenue** :
+  la dernière valeur acceptée est renvoyée, et l'état de l'intégration
+  l'affiche. Ni le temps ni la répétition ne la confirment ;
+- si elle est juste, cliquez **deux fois** sur **Accepter l'index retenu** :
+  le premier clic liste ce qui est retenu sans rien accepter, le second, dans
+  les 5 minutes, accepte exactement ce qui a été listé (un saut est alors
+  compté d'un coup, une baisse ne compte rien). Si la valeur a bougé entre les
+  deux clics, elle n'est pas acceptée : recommencez. Enregistrer la
+  configuration n'accepte rien.
 
-L'intégration ajoute ses propres cartes à l'éditeur de scènes (Gladys 5.1
-ou plus récent), dans la catégorie **Intégrations** :
+## Erreurs
 
-- **Mouvement détecté** (déclencheur) — lance la scène quand un détecteur
-  de démonstration voit bouger quelque chose. Choisissez éventuellement le
-  détecteur et ce qui a bougé (personne, animal) ; laissés vides, toute
-  détection correspond. Les actions suivantes peuvent lire ce qui a bougé
-  avec `{{triggerEvent.data.target}}`.
-- **Identifier un appareil** (action) — fait se signaler l'appareil choisi.
-  Elle indique si l'appareil a pu se signaler, pour que les actions
-  suivantes puissent en dépendre.
+- Une batterie injoignable est réessayée après 1 minute, puis 2, jusqu'à
+  15 minutes, jamais plus vite que l'intervalle de lecture.
+- Une réponse HTTP 429 ou 5xx met la batterie en pause de 1 minute à 6 heures,
+  gardée dans `/data` après un redémarrage.
+- Enregistrer la configuration relance tout de suite les lectures.
+- Si une autre batterie répond à une adresse (changement d'adresse DHCP), ses
+  valeurs vont dans son propre appareil, jamais dans celui de la précédente.
 
-## Tableau de bord
+## Confidentialité
 
-Ajoutez le widget **État de la démo** à un tableau de bord : il affiche en
-direct la température de la station météo et la puissance de la prise du
-bureau, la connexion utilisée par la prise (en orange si dégradée) et la
-position observée. Son bouton **Identifier la lampe** fait se signaler la
-lampe de démonstration.
-
-## Dépannage
-
-L'intégration journalise tout ce qu'elle fait : consultez les logs de
-l'intégration depuis l'interface Gladys (ou `docker logs` sur l'hôte) avec
-`LOG_LEVEL=debug` pour le détail complet.
+Rien ne sort de votre réseau : l'intégration ne parle qu'aux batteries, en
+HTTP local. L'API locale de la batterie ne demande aucun identifiant.

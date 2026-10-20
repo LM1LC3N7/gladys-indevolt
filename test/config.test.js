@@ -1,33 +1,37 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeConfig, DEFAULT_CONFIG } from '../src/config.js';
+import { normalizeConfig, parseAddress } from '../src/config.js';
 
-test('normalizeConfig returns the defaults when called with no argument', () => {
-  assert.deepEqual(normalizeConfig(), DEFAULT_CONFIG);
+test('addresses: host and port, 8080 by default, URLs reduced, credentials refused', () => {
+  assert.deepEqual(parseAddress('192.168.1.40'), { address: '192.168.1.40:8080' });
+  assert.deepEqual(parseAddress('http://192.168.1.40:8081/rpc'), { address: '192.168.1.40:8081' });
+  assert.deepEqual(parseAddress('Battery.local'), { address: 'battery.local:8080' });
+  assert.deepEqual(parseAddress('fe80::1'), { address: '[fe80::1]:8080' });
+  assert.deepEqual(parseAddress('[fe80::1]:81'), { address: '[fe80::1]:81' });
+  assert.deepEqual(parseAddress(''), { empty: true });
+  for (const bad of ['u:p@1.2.3.4', '1.2.3.4:70000', 'a_b', 'x'.repeat(400)]) {
+    assert.ok(parseAddress(bad).error, bad);
+  }
 });
 
-test('normalizeConfig keeps user values over the defaults', () => {
-  const config = normalizeConfig({ latitude: 45.5, longitude: -73.6, unit: 'fahrenheit' });
-  assert.equal(config.latitude, 45.5);
-  assert.equal(config.longitude, -73.6);
-  assert.equal(config.unit, 'fahrenheit');
-});
-
-test('normalizeConfig coerces numeric strings coming from a form', () => {
-  const config = normalizeConfig({ latitude: '48.8', longitude: '2.3', poll_frequency: '600' });
-  assert.equal(config.latitude, 48.8);
-  assert.equal(config.longitude, 2.3);
-  assert.equal(config.poll_frequency, 600);
-  assert.equal(typeof config.poll_frequency, 'number');
-});
-
-test('normalizeConfig falls back to the default for a missing numeric field', () => {
-  const config = normalizeConfig({ unit: 'celsius' });
-  assert.equal(config.poll_frequency, DEFAULT_CONFIG.poll_frequency);
-});
-
-test('GLADYS_PREFER_LOCAL defaults to true and only an explicit false disables it', () => {
-  assert.equal(normalizeConfig().GLADYS_PREFER_LOCAL, true);
-  assert.equal(normalizeConfig({ GLADYS_PREFER_LOCAL: true }).GLADYS_PREFER_LOCAL, true);
-  assert.equal(normalizeConfig({ GLADYS_PREFER_LOCAL: false }).GLADYS_PREFER_LOCAL, false);
+test('the configuration: up to six addresses, the interval bounded', () => {
+  const config = normalizeConfig({
+    addresses:
+      '192.168.1.40, 192.168.1.41;192.168.1.40 bad_host 1.1.1.1 2.2.2.2 3.3.3.3 4.4.4.4 5.5.5.5',
+    poll_interval: 10,
+  });
+  assert.deepEqual(config.addresses, [
+    '192.168.1.40:8080',
+    '192.168.1.41:8080',
+    '1.1.1.1:8080',
+    '2.2.2.2:8080',
+    '3.3.3.3:8080',
+    '4.4.4.4:8080',
+  ]);
+  assert.deepEqual(config.invalidAddresses, ['bad_host']);
+  assert.equal(config.pollInterval, 30);
+  assert.equal(normalizeConfig({ poll_interval: '120' }).pollInterval, 120);
+  assert.equal(normalizeConfig({ poll_interval: 10_000 }).pollInterval, 300);
+  assert.equal(normalizeConfig({ poll_interval: 'x' }).pollInterval, 30);
+  assert.deepEqual(normalizeConfig().addresses, []);
 });

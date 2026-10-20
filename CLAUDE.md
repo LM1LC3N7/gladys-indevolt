@@ -11,13 +11,25 @@ Gladys through
 [`@gladysassistant/integration-sdk`](https://github.com/GladysAssistant/integration-sdk-js),
 its only runtime dependency. It started from the official JavaScript template.
 
+It reads **Indevolt home batteries** through their local HTTP API (port 8080):
+`GET /rpc/Sys.GetConfig` and `POST /rpc/Indevolt.GetData?config={"t":[...]}`.
+The requests, the keys and their meaning are ported from
+[indevolt-api](https://github.com/Xirt/indevolt-api) (MIT, see
+`THIRD_PARTY_NOTICES.md`); the units and the keys per generation from the Home
+Assistant integration. Unofficial: not affiliated with Indevolt. The protocol
+is not documented by Indevolt. **Read-only**: never `onSetValue`, never the
+library's `SetData`. Siblings: `gladys-marstek` (another home battery, its
+structure), `gladys-p1-monitor` and `gladys-imeon` (the index guard, the
+store).
+
 ## Commands
 
 ```bash
 npm install
 npm test                                  # node --test, the built-in runner
-node --test test/devices.test.js          # one file
-node --test --test-name-pattern "plug"    # tests whose name matches
+node --test test/app.test.js              # one file
+node --test --test-name-pattern "guard"   # tests whose name matches
+npm run audit                             # npm audit --omit=dev
 npm run lint                              # ESLint
 npm run format:check                      # Prettier, as the CI runs it
 npm run format                            # Prettier, fix in place
@@ -32,13 +44,16 @@ pushing.
 
 ```
 index.js                          SDK wiring only: handlers registered before connect()
-src/devices/index.js              registry of the device blueprints + dispatch helpers
-src/devices/<type>.js             one device type per file (buildDevice, onPoll, onSetValue...)
-src/scenes.js                     scene action handlers (manifest `scene_actions`)
-src/widgets.js                    dashboard widget handlers (manifest `widgets`)
-src/config.js                     DEFAULT_CONFIG (mirrors the manifest defaults) + normalization
-src/weather.js                    example driver (Open-Meteo)
-gladys-assistant-integration.json manifest: name, config_schema, actions, image...
+src/app.js                        IndevoltApp: addresses, reads, indexes, pauses, buttons
+src/indevolt/client.js            the only HTTP access (bounded body, errors in our words)
+src/indevolt/model.js             the keys per generation, the answers -> values (pure)
+src/guard.js                      plausibility of an energy index, from gladys-p1-monitor (pure)
+src/store.js                      what /data keeps across restarts
+src/devices.js                    the device, feature keys, catalog, states (pure)
+src/config.js                     addresses and interval, normalized
+src/constants.js                  paths, pacing, limits, manifest keys
+src/i18n.js                       runtime texts (en/fr)
+gladys-assistant-integration.json manifest: name, config_schema, actions, discovery...
 docs/en.md, docs/fr.md            user documentation, re-hosted by Gladys (mandatory)
 test/                             node --test, against the SDK's fake Gladys (integration-sdk/testing)
 .github/scripts/release.mjs       release helpers (manifest bump, changelog), tested in test/
@@ -46,31 +61,41 @@ test/                             node --test, against the SDK's fake Gladys (in
 
 ## Rules
 
-- **External ids are forever.** Build them with
-  `gladys.externalIds(type, platformId)`, `platformId` being the unique id the
-  platform gives the device (serial, cloud id, MAC), never a label. Gladys keys
-  devices, their history, scenes and dashboards on them: changing one creates a
-  new device and orphans the old one. The same goes for every key users store:
-  manifest `config_schema`, `actions`, widget and scene keys, feature keys.
-- **The container rootfs is read-only.** Write only under `/data`, the one
-  writable volume. Never log tokens, passwords or API keys.
+- **Read-only.** No `onSetValue`, no `Indevolt.SetData`, no write register
+  (`test/client.test.js` checks it). A command, if one is ever added, is a
+  `button` disabled by default behind an option, never a `switch`.
+- **Energy monitoring**: the five indexes of `INDEXES` (`src/devices.js`) are
+  the only index features; each passes `IndexGuard` (`src/guard.js`, taken as
+  it is): never 0, a drop and a jump never confirmed by repetition nor by
+  time, only by the `accept_held_index` action clicked twice (the second click
+  accepts only what the first listed, within 5 minutes). No `energy-sensor` /
+  `index` (the battery measures no grid import), no `daily-consumption`, never
+  `publishEnergyConsumption`. The counters of the day are plain sensors.
+- **One read = one address**: the serial of `Sys.GetConfig`, read right
+  before the values, decides the device; another battery at that address
+  never writes into the previous one's device.
+- **Pauses**: 429/5xx pause from 1 min to 6 h, kept in `/data` (end capped
+  when read back); never a read faster than the interval; a reconnection to
+  Gladys clears neither a pause nor a retry delay.
+- **Hostile answers**: bodies bounded to 64 KiB, no redirect followed, own
+  keys only, strict numbers, ranges checked.
+- **Never a text of the battery in a message**, never a URL in the logs.
+- **External ids are forever**: `battery:<serial>`, the `FEATURE` keys of
+  `src/devices.js`, the manifest keys. The device published again never loses
+  a feature of the created one (`entriesFor`).
+- **Units**: only those of `DEVICE_FEATURE_UNITS_BY_CATEGORY` in the core
+  (`test/manifest.test.js`).
+- **The container rootfs is read-only.** Write only under `/data`:
+  `src/store.js` keeps `/data/indevolt-state.json`.
 - **Versions belong to the Release workflow** (Actions → Release). Never edit
   `version` in `package.json` or in the manifest, nor the `docker_image` tag,
-  by hand — except on the README's hand-pushed tag path, which bumps all three
-  together before tagging. `test/manifest.test.js` checks they agree.
+  by hand. `test/manifest.test.js` checks they agree.
 - **Changelog.** Every user-visible change adds a line under `## [Unreleased]`
   in `CHANGELOG.md` (`### Added`, `Changed`, `Fixed`, `Removed`, `Security`).
-  Never write a version heading: the Release workflow moves the section, and it
-  becomes the notes of the GitHub Release.
-- **Manifest.** Texts are multi-language objects `{ "en": ..., "fr": ... }`:
-  `label`, `description` and `placeholder` alike, never a plain string. The
-  catalog `description` holds 10 to 100 characters per language. A field the
-  older cores do not know needs a higher `gladys_version` minimum
-  (`categories`: 4.86.0; `widgets`, `scene_triggers`, `scene_actions`,
-  `type: "provider"`: 5.1.0). `test/manifest.test.js` ties the manifest to the
-  code (defaults, action, scene and widget handlers): change both sides
-  together.
-- **User-facing text** is bilingual (English and French): action messages,
-  manifest texts, and `docs/en.md` / `docs/fr.md`, kept in sync.
+  Never write a version heading: the Release workflow moves the section.
+- **Manifest.** Texts are multi-language objects `{ "en": ..., "fr": ... }`.
+  The catalog `description` holds 10 to 100 characters per language.
+- **User-facing text** is bilingual (English and French), kept in sync. Files
+  are UTF-8 without BOM (`test/encoding.test.js`, sources included).
 - **Style.** Prettier formats, ESLint catches mistakes. Comments explain why,
   in English. Tests never touch the network.
