@@ -43,7 +43,7 @@ import { INDEXES, buildDevice, ids, readStates, round } from './devices.js';
 import { IndexGuard } from './guard.js';
 import { T } from './i18n.js';
 import { IndevoltClient } from './indevolt/client.js';
-import { KEYS, parseValues, serialOfValues } from './indevolt/model.js';
+import { KEYS, parseValues } from './indevolt/model.js';
 import { createFileStore } from './store.js';
 
 const defaultTimers = { setTimeout, clearTimeout, setInterval, clearInterval };
@@ -606,15 +606,6 @@ export class IndevoltApp {
     target.lastError = undefined;
     target.pause = undefined;
     const serial = identity.serial;
-    const inValues = serialOfValues(raw);
-    if (inValues !== undefined && inValues !== serial) {
-      // The address changed hands between the two requests: nothing from this read.
-      this.warnOnce(
-        `swap:${target.address}:${inValues}`,
-        `${target.address}: the values are of ${inValues}, not ${serial}: read skipped`,
-      );
-      return undefined;
-    }
     if (seen.has(serial)) {
       // The same battery at a second address (a host name and its IP): the first one is read.
       this.warnOnce(
@@ -638,10 +629,12 @@ export class IndevoltApp {
       this.logger.info(`Indevolt battery ${serial} at ${target.address}`);
     } else if (battery.address && battery.address !== target.address) {
       this.logger.info(`Indevolt battery ${serial} now answers at ${target.address}`);
-      // DHCP: its old address is no longer read (unless typed, or another
-      // battery answered there in this round).
+      // DHCP: its old address is no longer read when it fails or never
+      // answered (unless typed). One that answered keeps being read: two
+      // batteries may have swapped their addresses, the other one is there
+      // now. One read later in this round and failing is forgotten by failed().
       const old = this.targets.get(battery.address);
-      if (!old || old.serial === serial || old.lastError || !old.serial) {
+      if (!old || old.lastError || !old.serial) {
         this.forgetAddress(battery.address);
       }
     }
@@ -667,6 +660,15 @@ export class IndevoltApp {
     this.logger.warn(
       `Indevolt read of ${target.address} failed: ${code}${err?.status ? ` ${err.status}` : ''}`,
     );
+    const moved = target.serial && this.batteries.get(target.serial);
+    if (moved && moved.address !== target.address && this.targets.get(target.address) === target) {
+      // Its battery answers elsewhere now (a DHCP move): this address is no
+      // longer read, unless typed in the form.
+      this.forgetAddress(target.address);
+      if (!this.targets.has(target.address)) {
+        return;
+      }
+    }
     if (code === 'rate_limited' || code === 'server') {
       const count = (target.pause?.count ?? 0) + 1;
       const asked = err.retryAfter ?? PAUSE_MIN * 2 ** (count - 1);

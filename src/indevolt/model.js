@@ -25,8 +25,6 @@ export const GEN2_TYPES = new Set([
 
 /** The keys read (indevolt_api/const.py), by name. */
 export const KEY = {
-  /** The serial, also in the values: a check that the same battery answered both requests. */
-  SERIAL_NUMBER: 0,
   OPERATING_MODE: 606,
   ENERGY_MODE: 7101,
   AC_INPUT_POWER: 2101,
@@ -67,7 +65,6 @@ export const KEY = {
 };
 
 const COMMON = [
-  KEY.SERIAL_NUMBER,
   KEY.OPERATING_MODE,
   KEY.ENERGY_MODE,
   KEY.AC_INPUT_POWER,
@@ -139,19 +136,6 @@ const FIRMWARE = /^[A-Za-z0-9][A-Za-z0-9 ._+-]{0,39}$/;
  * when it is not an Indevolt answer (no serial of a plausible shape). The
  * model and firmware are dropped, not kept, when their shape is odd.
  */
-/**
- * The serial a GetData answer gives (key 0), when it has a plausible shape;
- * undefined otherwise (its format is not documented: an odd one is ignored).
- */
-export function serialOfValues(raw) {
-  if (!isObject(raw) || !Object.hasOwn(raw, '0')) {
-    return undefined;
-  }
-  const value = raw['0'];
-  const text = typeof value === 'string' ? value.trim() : '';
-  return SERIAL.test(text) ? text : undefined;
-}
-
 export function parseIdentity(answer) {
   const device = isObject(answer) && Object.hasOwn(answer, 'device') ? answer.device : undefined;
   if (!isObject(device) || !Object.hasOwn(device, 'sn')) {

@@ -5,7 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { KEYS, num, parseIdentity, parseValues, serialOfValues } from '../src/indevolt/model.js';
+import { KEYS, num, parseIdentity, parseValues } from '../src/indevolt/model.js';
 import { KEYS_PER_REQUEST } from '../src/constants.js';
 import { VALUES, identity } from './fixtures/indevolt.js';
 
@@ -34,18 +34,8 @@ test('identity: serial, model, generation as the library counts it, firmware', (
   }
 });
 
-test('the serial in the values (key 0): taken only with a plausible shape', () => {
-  assert.equal(serialOfValues({ 0: 'SF2000A1B2C3' }), 'SF2000A1B2C3');
-  for (const odd of [
-    {},
-    { 0: 12 },
-    { 0: 'a b' },
-    null,
-    JSON.parse('{"__proto__": {"0": "ABCDEF"}}'),
-  ]) {
-    assert.equal(serialOfValues(odd), undefined, JSON.stringify(odd));
-  }
-  assert.ok(KEYS[1].includes(0) && KEYS[2].includes(0));
+test('only the keys Home Assistant reads: never key 0 (its format is not confirmed)', () => {
+  assert.ok(!KEYS[1].includes(0) && !KEYS[2].includes(0));
 });
 
 test('the keys of each generation fit in one request', () => {

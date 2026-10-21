@@ -25,6 +25,10 @@
       (21028 / 11016): the charge and discharge powers come from the state
       (6001), whatever the sign; the meter stays a plain sensor until its sign
       is known (then `grid-sensor` / `power`).
+- [ ] Key 0 (`IndevoltSystem.SERIAL_NUMBER`): whether GetData answers it,
+      its format (the `device.sn` of Sys.GetConfig or another serial), and
+      whether the firmware accepts it in a request. Only then can it check
+      that both requests reached the same battery (not read in v1).
 - [ ] The `BCF-D` announcement on UDP 8099: how often a battery sends it
       (the core listens 10 s per scan).
 - [ ] Whether a firmware update resets a lifetime counter (the guard holds it
@@ -58,15 +62,17 @@
   after a restart without the form.
 - **One read = one address**: `Sys.GetConfig` before every `GetData` (one
   more small GET every 30 s), so the serial that answers decides the device
-  (DHCP swap: the values go to the other battery's own device). Review 1, M3:
-  GetData also asks key 0 (the serial, `IndevoltSystem.SERIAL_NUMBER`); a
-  serial of a plausible shape that differs from `Sys.GetConfig`'s skips the
-  read. When key 0 is absent or odd (its format is not confirmed), a swap
-  between the two requests (a few ms) is the risk left; the indexes stay
-  protected by the guard.
-- **DHCP move** (review 1, I1): a serial answering at a new address forgets
-  its old address (out of the discovered ones and the targets, unless typed or
-  another battery answered there); a full Discovery (six addresses) evicts a
+  (DHCP swap: the values go to the other battery's own device). A swap between
+  the two requests (a few ms) is the risk left (the indexes stay protected by
+  the guard). Review 2, R2: key 0 (`IndevoltSystem.SERIAL_NUMBER`) is NOT read
+  to check it: its format is not confirmed (Home Assistant never asks for it)
+  and a different form would have blocked every read.
+- **DHCP move** (review 1, I1; review 2, R1): a serial answering at a new
+  address forgets its old address only when that one fails or never answered
+  (unless typed); an old address that answered keeps being read (two
+  batteries may have swapped: the other one is there now). A discovered or
+  created address that fails while its battery answers elsewhere is forgotten
+  (`failed()`, unless typed). A full Discovery (six addresses) evicts a
   discovered address that is silent, failing or not answering yet, so a new
   announcement is never ignored. The same serial at two addresses in a round
   (a host name and its IP) is read at the first only (typed, then created,

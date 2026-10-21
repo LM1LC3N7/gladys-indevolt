@@ -528,13 +528,72 @@ test('M2: foreign datagrams never push the announcement out', async () => {
   assert.equal(gladys.fake.discoveredDevices[0]?.external_id, DEVICE);
 });
 
-test('M3: values of another serial than Sys.GetConfig gave: the read is skipped', async () => {
-  const r = routes();
-  r.state.values[0] = 'OTHER00001';
-  const { app, gladys } = await setup({ hosts: { [ADDRESS]: r }, devices: [created()] });
-  await app.start(CONFIG);
+const A40 = '192.168.1.40:8080';
+const A41 = '192.168.1.41:8080';
+const battery = (sn, soc) => {
+  const r = routes({ who: identity({ sn }) });
+  r.state.values[6002] = soc;
+  return r;
+};
+
+/** Two batteries swap their addresses (DHCP): each one is read at its new address. */
+async function checkSwap({ app, gladys, hosts, tick }) {
+  assert.equal(last(gladys, 'soc', 'SNAAAA01'), 40);
+  assert.equal(last(gladys, 'soc', 'SNBBBB01'), 41);
+  hosts[A40] = battery('SNBBBB01', 51);
+  hosts[A41] = battery('SNAAAA01', 50);
+  await tick();
+  await tick();
+  assert.equal(last(gladys, 'soc', 'SNAAAA01'), 50);
+  assert.equal(last(gladys, 'soc', 'SNBBBB01'), 51);
+  assert.deepEqual([...app.targets.keys()].sort(), [A40, A41]);
+  assert.match(status(gladys).message.en, /^2 of 2 Indevolt batteries answering/);
+}
+
+test('R1: two discovered batteries swap their addresses: both still read', async () => {
+  const hosts = { [A40]: battery('SNAAAA01', 40), [A41]: battery('SNBBBB01', 41) };
+  const scanResults = { 'udp-broadcast': [announce('192.168.1.40'), announce('192.168.1.41')] };
+  const setupDone = await setup({ config: {}, hosts, scanResults });
+  const { app, gladys } = setupDone;
+  await app.start({});
   await app.idle();
-  assert.equal(gladys.fake.states.length, 0);
+  await app.scan();
+  for (const device of gladys.fake.discoveredDevices) {
+    await gladys.fake.deviceCreated(device);
+    await app.idle();
+  }
+  await checkSwap(setupDone);
+});
+
+test('R1: two batteries only created (after a restart) swap their addresses: both still read', async () => {
+  const hosts = { [A40]: battery('SNAAAA01', 40), [A41]: battery('SNBBBB01', 41) };
+  const devices = [
+    created({ who: identity({ sn: 'SNAAAA01' }), address: A40 }),
+    created({ who: identity({ sn: 'SNBBBB01' }), address: A41 }),
+  ];
+  const setupDone = await setup({ config: {}, hosts, devices });
+  await setupDone.app.start({});
+  await setupDone.app.idle();
+  await checkSwap(setupDone);
+});
+
+test('R1: a move whose old address is read after the new one leaves one address', async () => {
+  const hosts = { [A41]: battery('SNAAAA01', 40) };
+  const scanResults = { 'udp-broadcast': [announce('192.168.1.41')] };
+  // The new address is typed (read first), the old one discovered (read after).
+  const config = { addresses: '192.168.1.42' };
+  const { app, gladys, tick } = await setup({ config, hosts, scanResults });
+  await app.start(config);
+  await app.idle();
+  await app.scan();
+  await gladys.fake.deviceCreated(gladys.fake.discoveredDevices[0]);
+  await app.idle();
+  delete hosts[A41];
+  hosts['192.168.1.42:8080'] = battery('SNAAAA01', 42);
+  for (let i = 0; i < 8; i += 1) await tick();
+  assert.equal(last(gladys, 'soc', 'SNAAAA01'), 42);
+  assert.deepEqual([...app.targets.keys()], ['192.168.1.42:8080']);
+  assert.match(status(gladys).message.en, /^1 of 1 Indevolt battery answering/);
 });
 
 test('M6: /data written once a round, never once a battery', async () => {
