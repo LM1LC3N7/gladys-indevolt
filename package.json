@@ -1,6 +1,6 @@
 {
   "name": "gladys-indevolt",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Indevolt home batteries for Gladys Assistant: state of charge, powers, solar and energy indexes read through the local API of the battery. Read-only.",
   "type": "module",
