@@ -70,7 +70,10 @@ export function routes({ values = VALUES, who = identity() } = {}) {
     '/rpc/Indevolt.GetData': (call) => {
       const answer = {};
       for (const key of keysOf(call)) {
-        if (Object.hasOwn(state.values, key)) {
+        if (key === 0 && !Object.hasOwn(state.values, 0)) {
+          // Key 0 is the serial: that of the battery answering, unless the test sets one.
+          answer[0] = state.who.device.sn;
+        } else if (Object.hasOwn(state.values, key)) {
           answer[key] = state.values[key];
         }
       }

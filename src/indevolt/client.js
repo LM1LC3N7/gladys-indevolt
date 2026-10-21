@@ -109,7 +109,9 @@ export class IndevoltClient {
       try {
         response = await this.fetch(`http://${address}${path}${query ? `?${query}` : ''}`, {
           method,
-          headers: { Accept: 'application/json' },
+          // As the library: one request per connection, the embedded web
+          // server does not take a kept-alive connection again.
+          headers: { Accept: 'application/json', Connection: 'close' },
           // A redirect is never followed: the requests stay on this address.
           redirect: 'manual',
           signal: AbortSignal.timeout(this.timeout),

@@ -144,8 +144,8 @@ export const T = {
               },
         ),
         {
-          en: `Click "Accept the held index" again within ${delay(within).en} to accept them; accept only if this energy was real.`,
-          fr: `Cliquez de nouveau sur « Accepter l’index retenu » dans les ${delay(within).fr} pour les accepter ; n’acceptez que si cette énergie est réelle.`,
+          en: `Click "Accept the held index" again, after a few seconds and within ${delay(within).en}, to accept them; accept only if this energy was real.`,
+          fr: `Cliquez de nouveau sur « Accepter l’index retenu », après quelques secondes et dans les ${delay(within).fr}, pour les accepter ; n’acceptez que si cette énergie est réelle.`,
         },
       ]),
     /** Second click: `accepted` and `changed` are lists of held entries. */

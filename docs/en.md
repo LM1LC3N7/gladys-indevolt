@@ -20,7 +20,9 @@ change them.
 ## What you get
 
 One device per battery, identified by its serial (a new IP address keeps the
-device and its history):
+device and its history, once the battery is found there: open the
+**Discover** tab again, or type the new address; the old address is then no
+longer read):
 
 - state of charge (%), charge and discharge power (W), battery power (W,
   signed), state (0 = idle, 1 = charging, 2 = discharging);
@@ -54,8 +56,9 @@ integration creates **no consumption index** to be billed.
    only if it is not 8080), six at most.
 3. Create the device of each battery from the **Discover** tab.
 4. **Reading interval**: 30 s by default (as Home Assistant), from 30 to
-   300 s. With more than three batteries, each one is read a little less often
-   (10 s per battery), to stay under the 300 states a minute of Gladys.
+   300 s. From four batteries on, each one is read every two intervals (every
+   60 s at 30 s), to stay under the 300 states a minute of Gladys; at most 270
+   values are sent in any minute, the others at the next read.
 
 The **Test the connection** button asks each battery once for its model,
 serial and firmware.
@@ -66,11 +69,13 @@ Gladys counts every rise of an index in full. So that no fictitious energy is
 ever counted, every index goes through a guard:
 
 - a value of 0 is never sent (an off-grid index never used stays empty);
-- a drop, or a rise faster than 15 kW on average, is **held back**: the last
+- a drop, or a rise faster than 2 kW (first generation: BK1600...) or 12 kW
+  (second generation: SolidFlex, PowerFlex) on average, is **held back**: the last
   accepted value is sent again, and the status of the integration shows it.
   Neither time nor repetition confirms it;
 - if it is right, click **Accept the held index** **twice**: the first click
-  lists what is held and accepts nothing, the second, within 5 minutes,
+  lists what is held and accepts nothing, the second, from 3 seconds to 5
+  minutes later (a double-click counts as one click),
   accepts exactly what was listed (a jump is then counted at once, a drop
   counts nothing). If the value moved between the two clicks, it is not
   accepted: start again. Saving the configuration accepts nothing.

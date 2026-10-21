@@ -58,22 +58,38 @@
   after a restart without the form.
 - **One read = one address**: `Sys.GetConfig` before every `GetData` (one
   more small GET every 30 s), so the serial that answers decides the device
-  (DHCP swap: the values go to the other battery's own device). A swap between
-  the two requests (a few ms) is the risk left.
+  (DHCP swap: the values go to the other battery's own device). Review 1, M3:
+  GetData also asks key 0 (the serial, `IndevoltSystem.SERIAL_NUMBER`); a
+  serial of a plausible shape that differs from `Sys.GetConfig`'s skips the
+  read. When key 0 is absent or odd (its format is not confirmed), a swap
+  between the two requests (a few ms) is the risk left; the indexes stay
+  protected by the guard.
+- **DHCP move** (review 1, I1): a serial answering at a new address forgets
+  its old address (out of the discovered ones and the targets, unless typed or
+  another battery answered there); a full Discovery (six addresses) evicts a
+  discovered address that is silent, failing or not answering yet, so a new
+  announcement is never ignored. The same serial at two addresses in a round
+  (a host name and its IP) is read at the first only (typed, then created,
+  then discovered), logged once.
+- **Connection: close** (review 1, I3): every request sends it, as the
+  library ("prevent keep-alive reuse on embedded firmware"): Node's fetch would
+  otherwise reuse a connection the firmware may not serve again.
 - **Energy indexes (lot 6 rules)**: the lifetime counters charged (6006),
   discharged (6007), AC output (2104), off-grid output (2105) and solar
   (1505, Wh → kWh) are the indexes (`battery-storage` / `charge-index`,
   `discharge-index`, `home-output-sensor` / `index`, `off-grid-index`,
   `energy-production-sensor` / `index` with its `thirty-minutes-production`
-  declared with UUID v5 ids). Each passes the IndexGuard with `maxKw` 15 (the
-  library gives 10.8 kW to the largest model) and `slackKwh` 0.5. The AC input
+  declared with UUID v5 ids). Each passes the IndexGuard with `maxKw` by
+  generation (review 1, I2): 2 kW for the first (the library: 1.2 kW charge,
+  0.8 kW discharge), 12 kW for the second (10.8 kW), and `slackKwh` 0.5; the
+  same margin bounds the second click. The AC input
   (2107) and bypass (11034) counters, whose role is not documented, are plain
   sensors; the counters of the day too. No `energy-sensor` / `index`: the
   battery measures no grid import, nothing is billed. No `daily-*`, no
   `publishEnergyConsumption` (tested).
 - **Acceptance in two clicks** (lot 11 brief): the first click of "Accept the
-  held index" lists every index held and accepts nothing; the second, within
-  5 minutes, accepts only the indexes listed, and only when each still shows
+  held index" lists every index held and accepts nothing; the second, from
+  3 s (review 1, M1: a double-click is one click) to 5 minutes later, accepts only the indexes listed, and only when each still shows
   the listed value (a jump may have grown by at most the margin of the guard
   since). The guard then bounds the acceptance as in gladys-p1-monitor. The
   pending list lives in memory only.
@@ -91,10 +107,23 @@
   any other one is 1. Each generation reads its own keys (fewer than 50, one
   request); the device of a generation never loses a feature it was created
   with.
-- **Pace**: 30 s by default (Home Assistant), 30-300 s; with more than three
-  batteries, `10 s × batteries` between two reads of a battery: at most
-  ~230 states a minute for six batteries with every value changing, below the
-  300 of Gladys; `publishChangedStates` with a 10-minute heartbeat.
+- **Pace**: 30 s by default (Home Assistant), 30-300 s; reads only happen at
+  the ticks of the interval: from four batteries on, each battery is read every
+  two intervals (review 1, M5). `publishChangedStates` with a 10-minute
+  heartbeat.
+- **States per minute** (review 1, I4): a sliding budget of 270 states over
+  60 s (the core refuses a whole batch beyond 300 in its minute): a battery
+  whose batch would go beyond is not sent at this read (its values go at its
+  next read). A save of the form no longer forgets the published states (only
+  a (re)connection to Gladys does), so it never sends every value twice in a
+  minute. Six second-generation batteries: 204 states a read.
+- **/data writes** (review 1, M6): one save a round, after every battery was
+  read and BEFORE any value is sent (a crash in between never sends an index
+  /data does not know); a pause saves at once.
+- **Logs** (review 1, M4): a held index is logged once per hold, a seventh
+  battery once.
+- **Discovery results** (review 1, M2): the `BCF-D` announcements are kept
+  first, then bounded (200), so foreign datagrams on 8099 never push them out.
 - **429 / 5xx**: pause `{ until, count, code, status }` per address in
   `/data`, from Retry-After or 1 min doubled, bounded 1 min - 6 h; the end
   read back from `/data` is capped at 6 h from the load; the test button never

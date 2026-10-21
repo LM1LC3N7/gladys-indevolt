@@ -39,6 +39,9 @@ test('Sys.GetConfig by GET, GetData by POST with the keys asked', async () => {
   assert.equal(post.init.redirect, 'manual');
   assert.equal(post.init.body, undefined);
   assert.ok(!('User-Agent' in post.init.headers), 'no User-Agent of our own');
+  // As the library: one request per connection (embedded firmware).
+  assert.equal(get.init.headers.Connection, 'close');
+  assert.equal(post.init.headers.Connection, 'close');
 });
 
 test('more than 50 keys: several requests, merged', async () => {

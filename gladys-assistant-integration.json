@@ -42,8 +42,8 @@
         "fr": "Adresses IP des batteries (facultatif)"
       },
       "description": {
-        "en": "Discovery finds the batteries that announce themselves. Type the others here, separated by commas, with :port only if it is not 8080 (at most 6). Preferably give them a fixed address in your router; if one changes, its device and history are kept.",
-        "fr": "Découverte trouve les batteries qui s'annoncent. Saisissez les autres ici, séparées par des virgules, avec :port seulement s'il n'est pas 8080 (6 au plus). Donnez-leur de préférence une adresse fixe dans votre box ; si l'une change, son appareil et son historique sont gardés."
+        "en": "Discovery finds the batteries that announce themselves. Type the others here, separated by commas, with :port only if it is not 8080 (at most 6). Preferably give them a fixed address in your router; if one changes, open Discovery again (or type the new one): its device and history are kept.",
+        "fr": "Découverte trouve les batteries qui s'annoncent. Saisissez les autres ici, séparées par des virgules, avec :port seulement s'il n'est pas 8080 (6 au plus). Donnez-leur de préférence une adresse fixe dans votre box ; si l'une change, rouvrez Découverte (ou saisissez la nouvelle) : son appareil et son historique sont gardés."
       },
       "placeholder": {
         "en": "e.g. 192.168.1.40, 192.168.1.41",
@@ -59,8 +59,8 @@
       "max": 300,
       "label": { "en": "Reading interval (s)", "fr": "Intervalle de lecture (s)" },
       "description": {
-        "en": "How often each battery is read: 30 s as Home Assistant, more if you wish. With more than three batteries, each one is read a little less often (10 s per battery), to stay within the limits of Gladys.",
-        "fr": "Fréquence de lecture de chaque batterie : 30 s comme Home Assistant, plus si vous le souhaitez. Au-delà de trois batteries, chacune est lue un peu moins souvent (10 s par batterie), pour rester dans les limites de Gladys."
+        "en": "How often each battery is read: 30 s as Home Assistant, more if you wish. From four batteries on, each one is read every two intervals (every 60 s at 30 s), to stay within the limits of Gladys.",
+        "fr": "Fréquence de lecture de chaque batterie : 30 s comme Home Assistant, plus si vous le souhaitez. À partir de quatre batteries, chacune est lue tous les deux intervalles (toutes les 60 s à 30 s), pour rester dans les limites de Gladys."
       }
     }
   ],
@@ -79,8 +79,8 @@
       "timeout_seconds": 30,
       "label": { "en": "Accept the held index", "fr": "Accepter l'index retenu" },
       "description": {
-        "en": "Only when the status shows an energy index held back (a jump or a drop) and it is right. First click: lists what is held, accepts nothing. Second click within 5 minutes: accepts exactly what was listed. A jump is then counted at once; a drop counts nothing. Saving the configuration never accepts it.",
-        "fr": "Seulement quand l'état affiche un index d'énergie retenu (un saut ou une baisse) et qu'il est juste. Premier clic : liste ce qui est retenu, n'accepte rien. Second clic dans les 5 minutes : accepte exactement ce qui a été listé. Un saut est alors compté d'un coup ; une baisse ne compte rien. Enregistrer la configuration ne l'accepte jamais."
+        "en": "Only when the status shows an energy index held back (a jump or a drop) and it is right. First click: lists what is held, accepts nothing. Second click, 3 seconds to 5 minutes later (a double-click is one click): accepts exactly what was listed. A jump is then counted at once; a drop counts nothing. Saving the configuration never accepts it.",
+        "fr": "Seulement quand l'état affiche un index d'énergie retenu (un saut ou une baisse) et qu'il est juste. Premier clic : liste ce qui est retenu, n'accepte rien. Second clic, de 3 secondes à 5 minutes plus tard (un double-clic compte pour un seul) : accepte exactement ce qui a été listé. Un saut est alors compté d'un coup ; une baisse ne compte rien. Enregistrer la configuration ne l'accepte jamais."
       }
     }
   ]

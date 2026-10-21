@@ -38,6 +38,19 @@ the notes of the version's GitHub Release.
   status again; a device published again never loses a feature of the
   created one.
 - "Test the connection" and "Accept the held index" buttons.
+- A battery moved by DHCP is read at its new address only, once found there
+  (Discovery or the form); a full Discovery makes room for a new
+  announcement; the same battery at two addresses is read once.
+- The margin of the index guard follows the generation: 2 kW for the first,
+  12 kW for the second.
+- Every request asks the battery to close the connection
+  (`Connection: close`), as the library does for the embedded firmware.
+- At most 270 states are sent in any minute; a save of the form no longer
+  sends every value again. One `/data` write a read round.
+- Key 0 (serial) checked in the values: a read whose values are of another
+  battery is skipped. A double-click on "Accept the held index" counts as one
+  click. Foreign datagrams on UDP 8099 never hide an announcement. A held
+  index is logged once.
 - Documentation in English and French; `LICENSE` (Apache-2.0) and
   `THIRD_PARTY_NOTICES.md` (MIT notice of indevolt-api), shipped in the image.
 

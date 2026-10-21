@@ -47,10 +47,15 @@ export const POLL_DEFAULT = 30;
 export const POLL_MIN = 30;
 export const POLL_MAX = 300;
 /**
- * Each battery adds this to the time between two reads of a battery, so that
- * six batteries stay within the 300 states a minute of Gladys.
+ * Batteries read at each interval: with more, each battery is read every two
+ * intervals (four to six batteries), so that six stay within the 300 states a
+ * minute of Gladys. Reads only happen at the ticks of the interval.
  */
-export const SPACING_PER_BATTERY = 10 * SECOND;
+export const BATTERIES_PER_INTERVAL = 3;
+/** The states sent in any 60 s, at most (the core refuses a whole batch beyond 300). */
+export const STATES_PER_MINUTE = 270;
+/** The second click of "Accept the held index" counts only this long after the first. */
+export const ACCEPT_CONFIRM_AFTER = 3 * SECOND;
 /** An unreachable battery: tried again after 1 min (never faster than a read), doubled up to 15 min. */
 export const RETRY_MIN = MINUTE;
 export const RETRY_MAX = 15 * MINUTE;
@@ -66,11 +71,12 @@ export const ACCEPT_CONFIRM_WITHIN = 5 * MINUTE;
 
 // --- Energy indexes -------------------------------------------------------------------
 /**
- * The guard of an index (src/guard.js): no Indevolt battery charges,
- * discharges, delivers or produces more than this on average between two
- * reads (the largest model is given 10.8 kW by the library).
+ * The guard of an index (src/guard.js), by generation: no Indevolt battery
+ * charges, discharges, delivers or produces more than this on average between
+ * two reads. The library gives the first generation 1.2 kW of charge and
+ * 0.8 kW of discharge, the second 10.8 kW: a little margin on top.
  */
-export const INDEX_MAX_KW = 15;
+export const INDEX_MAX_KW = { 1: 2, 2: 12 };
 /** kWh always accepted on top of INDEX_MAX_KW × hours (rounding, a late read). */
 export const INDEX_SLACK_KWH = 0.5;
 

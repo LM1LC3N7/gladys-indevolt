@@ -19,7 +19,9 @@ modifiables : utilisez l'application Indevolt pour les changer.
 ## Ce que vous obtenez
 
 Un appareil par batterie, identifié par son numéro de série (une nouvelle
-adresse IP garde l'appareil et son historique) :
+adresse IP garde l'appareil et son historique, une fois la batterie trouvée à
+cette adresse : rouvrez l'onglet **Découverte**, ou saisissez la nouvelle
+adresse ; l'ancienne n'est alors plus lue) :
 
 - niveau de charge (%), puissances de charge et de décharge (W), puissance
   de la batterie (W, signée), état (0 = au repos, 1 = en charge, 2 = en
@@ -57,8 +59,10 @@ crée **aucun index de consommation** facturé.
    (avec `:port` seulement si ce n'est pas 8080), six au plus.
 3. Créez l'appareil de chaque batterie depuis l'onglet **Découverte**.
 4. **Intervalle de lecture** : 30 s par défaut (comme Home Assistant), de 30 à
-   300 s. Au-delà de trois batteries, chacune est lue un peu moins souvent
-   (10 s par batterie), pour rester sous les 300 états par minute de Gladys.
+   300 s. À partir de quatre batteries, chacune est lue tous les deux
+   intervalles (toutes les 60 s à 30 s), pour rester sous les 300 états par
+   minute de Gladys ; 270 valeurs au plus partent en une minute, les autres à
+   la lecture suivante.
 
 Le bouton **Tester la connexion** demande une fois à chaque batterie son
 modèle, son numéro de série et son firmware.
@@ -70,12 +74,14 @@ Gladys compte chaque hausse d'un index en entier. Pour ne jamais compter une
 
 - une valeur à 0 n'est jamais envoyée (un index hors réseau jamais utilisé
   reste vide) ;
-- une baisse, ou une hausse plus rapide que 15 kW en moyenne, est **retenue** :
+- une baisse, ou une hausse plus rapide que 2 kW (1re génération : BK1600…) ou
+  12 kW (2e génération : SolidFlex, PowerFlex) en moyenne, est **retenue** :
   la dernière valeur acceptée est renvoyée, et l'état de l'intégration
   l'affiche. Ni le temps ni la répétition ne la confirment ;
 - si elle est juste, cliquez **deux fois** sur **Accepter l'index retenu** :
-  le premier clic liste ce qui est retenu sans rien accepter, le second, dans
-  les 5 minutes, accepte exactement ce qui a été listé (un saut est alors
+  le premier clic liste ce qui est retenu sans rien accepter, le second, de
+  3 secondes à 5 minutes plus tard (un double-clic compte pour un seul clic),
+  accepte exactement ce qui a été listé (un saut est alors
   compté d'un coup, une baisse ne compte rien). Si la valeur a bougé entre les
   deux clics, elle n'est pas acceptée : recommencez. Enregistrer la
   configuration n'accepte rien.

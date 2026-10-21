@@ -23,7 +23,9 @@
 import { createLogger } from '@gladysassistant/integration-sdk';
 import { normalizeConfig, parseAddress } from './config.js';
 import {
+  ACCEPT_CONFIRM_AFTER,
   ACCEPT_CONFIRM_WITHIN,
+  BATTERIES_PER_INTERVAL,
   DISCOVERY_MAGIC,
   DISCOVERY_SECONDS,
   INDEX_MAX_KW,
@@ -33,20 +35,26 @@ import {
   PAUSE_MIN,
   RETRY_MAX,
   RETRY_MIN,
-  SPACING_PER_BATTERY,
   STATE_HEARTBEAT,
+  STATES_PER_MINUTE,
   TEST_ANSWER_WITHIN,
 } from './constants.js';
 import { INDEXES, buildDevice, ids, readStates, round } from './devices.js';
 import { IndexGuard } from './guard.js';
 import { T } from './i18n.js';
 import { IndevoltClient } from './indevolt/client.js';
-import { KEYS, parseValues } from './indevolt/model.js';
+import { KEYS, parseValues, serialOfValues } from './indevolt/model.js';
 import { createFileStore } from './store.js';
 
 const defaultTimers = { setTimeout, clearTimeout, setInterval, clearInterval };
 
-const GUARD_LIMITS = { maxKw: INDEX_MAX_KW, slackKwh: INDEX_SLACK_KWH };
+/** The margin of the guards of a battery of this generation. */
+const limitsOf = (generation) => ({
+  maxKw: INDEX_MAX_KW[generation] ?? INDEX_MAX_KW[1],
+  slackKwh: INDEX_SLACK_KWH,
+});
+
+const MINUTE = 60_000;
 
 /** A timer that fires a little early still reads (the pace of the timer itself). */
 const PACE_TOLERANCE = 1000;
@@ -134,6 +142,12 @@ export class IndevoltApp {
     /** The first click of "Accept the held index": `{ at, list }`, in memory only. */
     this.pendingAccept = undefined;
     this.publishedDevices = undefined;
+    /** The states sent in the last minute: `[{ at, count }]`, monotonic (STATES_PER_MINUTE). */
+    this.sent = [];
+    /** Messages logged once (a 7th battery, an address answering as another one). */
+    this.warned = new Set();
+    /** By index feature external id: the hold last logged (`direction:from`). */
+    this.loggedHolds = new Map();
     const kept = store.load();
     /** address -> pause read back from /data. */
     this.savedPauses = new Map();
@@ -205,7 +219,11 @@ export class IndevoltApp {
     // a restarted Gladys has lost them, so they are always sent again.
     this.lastStatus = undefined;
     this.publishedDevices = undefined;
-    this.gladys.forgetPublishedStates?.();
+    if (!fresh) {
+      // A (re)connection: every value again. Not a save of the form: the
+      // values Gladys already has are not sent twice in the same minute.
+      this.gladys.forgetPublishedStates?.();
+    }
     await this.discover();
     await this.updateStatus({ starting: true });
     // Always armed, whatever the first read gives: never a dead integration.
@@ -352,20 +370,32 @@ export class IndevoltApp {
     } catch (err) {
       this.logger.warn(`Indevolt discovery failed: ${err.message}`);
     }
-    let added = 0;
-    for (const result of Array.isArray(results) ? results.slice(0, 200) : []) {
+    // The announcements first (other datagrams on 8099 never push them out), then bounded.
+    const magic = Buffer.from(DISCOVERY_MAGIC);
+    const announced = new Set();
+    for (const result of Array.isArray(results) ? results.slice(0, 5000) : []) {
       const payload = Buffer.from(String(result?.payload_base64 ?? '').slice(0, 2048), 'base64');
-      if (!payload.subarray(0, DISCOVERY_MAGIC.length).equals(Buffer.from(DISCOVERY_MAGIC))) {
+      if (!payload.subarray(0, magic.length).equals(magic)) {
         continue;
       }
       const parsed = parseAddress(typeof result.source_ip === 'string' ? result.source_ip : '');
-      if (parsed.address && !this.discovered.has(parsed.address)) {
-        if (this.discovered.size >= MAX_BATTERIES) {
-          break;
-        }
-        this.discovered.add(parsed.address);
-        added += 1;
+      if (parsed.address) {
+        announced.add(parsed.address);
       }
+      if (announced.size >= 200) {
+        break;
+      }
+    }
+    let added = 0;
+    for (const address of announced) {
+      if (this.discovered.has(address)) {
+        continue;
+      }
+      if (this.discovered.size >= MAX_BATTERIES && !this.evictDiscovered(announced)) {
+        break;
+      }
+      this.discovered.add(address);
+      added += 1;
     }
     if (generation !== this.generation) {
       return;
@@ -377,6 +407,30 @@ export class IndevoltApp {
     // The new addresses are read now; the others keep their pace.
     await this.run(generation, () => this.round());
     await this.discover({ force: true });
+  }
+
+  /**
+   * Discovery full: one discovered address that no longer serves (silent
+   * now, failing, or not answering yet) makes room. True if one went.
+   */
+  evictDiscovered(announced) {
+    for (const address of this.discovered) {
+      const target = this.targets.get(address);
+      if (!announced.has(address) && (!target || target.lastError || !target.serial)) {
+        this.forgetAddress(address);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** An address no longer read: out of the discovered ones and the targets, unless typed. */
+  forgetAddress(address) {
+    if (this.config.addresses.includes(address)) {
+      return;
+    }
+    this.discovered.delete(address);
+    this.targets.delete(address);
   }
 
   async onDeviceCreated(device) {
@@ -451,15 +505,26 @@ export class IndevoltApp {
 
   // --- Reads -------------------------------------------------------------------------
 
-  /** The time between two reads of an address: the interval, more with many batteries. */
+  /**
+   * The time between two reads of an address: the interval, two intervals
+   * from four batteries on (reads only happen at the ticks of the interval).
+   */
   readGap() {
-    return Math.max(this.config.pollInterval * 1000, SPACING_PER_BATTERY * this.targets.size);
+    const factor = Math.max(1, Math.ceil(this.targets.size / BATTERIES_PER_INTERVAL));
+    return this.config.pollInterval * 1000 * factor;
   }
 
   /** The wait after a failure: never faster than a read, doubled up to 15 min. */
   retryWait(failures) {
     const first = Math.max(RETRY_MIN, this.readGap());
     return Math.min(first * 2 ** failures, Math.max(RETRY_MAX, first));
+  }
+
+  warnOnce(key, message) {
+    if (!this.warned.has(key)) {
+      this.warned.add(key);
+      this.logger.warn(message);
+    }
   }
 
   /**
@@ -481,11 +546,19 @@ export class IndevoltApp {
     return this.busy;
   }
 
+  /**
+   * Typed addresses first, then the created ones, then the discovered ones:
+   * a battery seen at two addresses in a round is read at the first only.
+   */
   async doRound(force, only) {
     const generation = this.generation;
     const gone = () => generation !== this.generation;
+    const seen = new Set();
+    const prepared = [];
     for (const target of [...this.targets.values()]) {
       if (gone()) return;
+      // Forgotten during this round (its battery answered elsewhere).
+      if (this.targets.get(target.address) !== target) continue;
       if (only && target.address !== only) continue;
       const mono = this.monotonic();
       if (mono < target.nextTryAt) continue;
@@ -497,15 +570,24 @@ export class IndevoltApp {
       ) {
         continue;
       }
-      await this.readTarget(target, gone);
+      const read = await this.readTarget(target, gone, seen);
+      if (read) prepared.push(read);
+    }
+    if (gone()) return;
+    // One save a round, BEFORE Gladys gets the values: a crash in between
+    // never sends an index /data does not know.
+    await this.saveState();
+    for (const read of prepared) {
+      if (gone()) return;
+      await this.send(read);
     }
     if (gone()) return;
     await this.discover();
-    await this.saveState();
     await this.updateStatus();
   }
 
-  async readTarget(target, gone) {
+  /** One address: who answers, its values, the indexes through the guards. */
+  async readTarget(target, gone, seen = new Set()) {
     const mono = this.monotonic();
     target.lastReadAt = mono;
     let identity;
@@ -516,40 +598,66 @@ export class IndevoltApp {
       raw = await this.client.readValues(target.address, KEYS[identity.generation]);
     } catch (err) {
       if (!gone()) await this.failed(target, err, mono);
-      return;
+      return undefined;
     }
-    if (gone()) return;
+    if (gone()) return undefined;
     target.failures = 0;
     target.nextTryAt = 0;
     target.lastError = undefined;
     target.pause = undefined;
-    let battery = this.batteries.get(identity.serial);
+    const serial = identity.serial;
+    const inValues = serialOfValues(raw);
+    if (inValues !== undefined && inValues !== serial) {
+      // The address changed hands between the two requests: nothing from this read.
+      this.warnOnce(
+        `swap:${target.address}:${inValues}`,
+        `${target.address}: the values are of ${inValues}, not ${serial}: read skipped`,
+      );
+      return undefined;
+    }
+    if (seen.has(serial)) {
+      // The same battery at a second address (a host name and its IP): the first one is read.
+      this.warnOnce(
+        `twice:${target.address}:${serial}`,
+        `Indevolt battery ${serial} also answers at ${target.address}: read at its first address only`,
+      );
+      return undefined;
+    }
+    seen.add(serial);
+    let battery = this.batteries.get(serial);
     if (!battery) {
       if (this.batteries.size >= MAX_BATTERIES) {
-        this.logger.warn(
-          `More than ${MAX_BATTERIES} Indevolt batteries: ${identity.serial} ignored`,
+        this.warnOnce(
+          `too-many:${serial}`,
+          `More than ${MAX_BATTERIES} Indevolt batteries: ${serial} ignored`,
         );
-        return;
+        return undefined;
       }
-      battery = { serial: identity.serial };
-      this.batteries.set(identity.serial, battery);
-      this.logger.info(`Indevolt battery ${identity.serial} at ${target.address}`);
-    } else if (battery.address !== target.address) {
-      this.logger.info(`Indevolt battery ${identity.serial} now answers at ${target.address}`);
+      battery = { serial };
+      this.batteries.set(serial, battery);
+      this.logger.info(`Indevolt battery ${serial} at ${target.address}`);
+    } else if (battery.address && battery.address !== target.address) {
+      this.logger.info(`Indevolt battery ${serial} now answers at ${target.address}`);
+      // DHCP: its old address is no longer read (unless typed, or another
+      // battery answered there in this round).
+      const old = this.targets.get(battery.address);
+      if (!old || old.serial === serial || old.lastError || !old.serial) {
+        this.forgetAddress(battery.address);
+      }
     }
-    if (target.serial && target.serial !== identity.serial) {
+    if (target.serial && target.serial !== serial) {
       // DHCP: the address now belongs to another battery. The previous one
       // gets nothing from here (its device keeps its history).
-      this.logger.warn(`${target.address} now answers as ${identity.serial}, not ${target.serial}`);
+      this.logger.warn(`${target.address} now answers as ${serial}, not ${target.serial}`);
     }
-    target.serial = identity.serial;
+    target.serial = serial;
     Object.assign(battery, {
       model: identity.model,
       generation: identity.generation,
       firmware: identity.firmware,
       address: target.address,
     });
-    await this.publish(battery, parseValues(raw, identity.generation));
+    return this.prepare(battery, parseValues(raw, identity.generation));
   }
 
   async failed(target, err, mono) {
@@ -573,30 +681,33 @@ export class IndevoltApp {
     target.nextTryAt = mono + wait;
   }
 
-  /** The guard of an index of a created device, from Gladys and /data. */
-  guardOf(created, id) {
+  /** The guard of an index of a created device, from Gladys and /data, its margin by generation. */
+  guardOf(created, id, generation) {
     if (!this.guards.has(id)) {
       const saved = this.store.load().indexes?.[id];
       this.guards.set(
         id,
-        new IndexGuard(lastValueOf(created, id), saved, this.now(), GUARD_LIMITS),
+        new IndexGuard(lastValueOf(created, id), saved, this.now(), limitsOf(generation)),
       );
     }
     return this.guards.get(id);
   }
 
-  /** The states of a read, the indexes through their guard. */
-  async publish(battery, values) {
+  /**
+   * The states of a read, the indexes through their guard (not sent yet:
+   * `send` does it, after /data is saved). Undefined without a created device.
+   */
+  prepare(battery, values) {
     const created = this.createdDevice(battery.serial);
     if (!created) {
-      return;
+      return undefined;
     }
     const external = this.external(battery.serial);
     const now = this.now();
     const indexes = {};
     for (const { key, value } of INDEXES) {
       const id = external.feature(key);
-      const guard = this.guardOf(created, id);
+      const guard = this.guardOf(created, id, battery.generation);
       const total = values[value] === undefined ? undefined : round(values[value], 3);
       if (total === undefined) {
         // Not in this answer: the last accepted value keeps its date in Gladys.
@@ -604,28 +715,49 @@ export class IndevoltApp {
         continue;
       }
       const plausible = guard.accept(total, now);
-      if (!plausible && total > 0) {
+      const held = guard.held ? `${guard.held.direction}:${guard.held.from}` : undefined;
+      if (held && this.loggedHolds.get(id) !== held) {
+        // Once per hold, not at every read.
         this.logger.warn(
-          `Indevolt ${battery.serial} ${key} ${guard.held?.direction === 'down' ? 'drop' : 'jump'} held back: the "Accept the held index" button takes it`,
+          `Indevolt ${battery.serial} ${key} ${guard.held.direction === 'down' ? 'drop' : 'jump'} held back: the "Accept the held index" button takes it`,
         );
       }
+      if (held) this.loggedHolds.set(id, held);
+      else this.loggedHolds.delete(id);
       // While a value is held, the last accepted one is sent again (no delta for the core).
       indexes[key] = plausible ? total : guard.held ? guard.last?.value : undefined;
     }
-    // The guards are in /data BEFORE Gladys gets the values: a crash in
-    // between never sends an index /data does not know.
-    await this.saveState();
     const features = new Set((created.features ?? []).map((f) => f.external_id));
     // Only the features the created device has (they are fixed at its creation).
     const states = readStates(external, values, indexes).filter((s) =>
       features.has(s.device_feature_external_id),
     );
-    if (states.length === 0) {
+    return states.length > 0 ? { serial: battery.serial, states } : undefined;
+  }
+
+  /**
+   * The states of one battery, within STATES_PER_MINUTE over any 60 s: a
+   * batch that would go beyond is not sent this time (the core refuses a whole
+   * batch beyond 300 a minute); the next read of the battery sends its values.
+   */
+  async send({ serial, states }) {
+    const mono = this.monotonic();
+    this.sent = this.sent.filter((s) => mono - s.at < MINUTE);
+    const used = this.sent.reduce((sum, s) => sum + s.count, 0);
+    if (used + states.length > STATES_PER_MINUTE) {
+      this.logger.debug(`Indevolt ${serial}: values kept for the next read (states per minute)`);
       return;
     }
-    await this.gladys
-      .publishChangedStates(states, { heartbeat: STATE_HEARTBEAT })
-      .catch((err) => this.logger.warn(`Publishing the Indevolt values failed: ${err.message}`));
+    try {
+      const result = await this.gladys.publishChangedStates(states, {
+        heartbeat: STATE_HEARTBEAT,
+      });
+      const count = Number.isInteger(result?.count) ? result.count : states.length;
+      this.sent.push({ at: mono, count });
+    } catch (err) {
+      this.sent.push({ at: mono, count: states.length });
+      this.logger.warn(`Publishing the Indevolt values failed: ${err.message}`);
+    }
   }
 
   // --- Status ------------------------------------------------------------------------
@@ -638,7 +770,7 @@ export class IndevoltApp {
       if (!created) continue;
       for (const { name, key } of INDEXES) {
         const id = this.external(battery.serial).feature(key);
-        const held = this.guardOf(created, id).held;
+        const held = this.guardOf(created, id, battery.generation).held;
         if (held) {
           list.push({ id, label: this.label(battery), name, ...held });
         }
@@ -700,7 +832,9 @@ export class IndevoltApp {
     const now = this.now();
     const pending = this.pendingAccept;
     this.pendingAccept = undefined;
-    if (!pending || mono - pending.at > ACCEPT_CONFIRM_WITHIN) {
+    // A double-click is one click: the second must come 3 s after the first at least.
+    const elapsed = pending ? mono - pending.at : undefined;
+    if (!pending || elapsed > ACCEPT_CONFIRM_WITHIN || elapsed < ACCEPT_CONFIRM_AFTER) {
       if (list.length === 0) {
         return T.accept.nothing;
       }
