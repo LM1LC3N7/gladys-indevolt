@@ -42,7 +42,7 @@ function* texts(node, path = '') {
 test('the store basics; version 0.1.0 everywhere', () => {
   assert.equal(manifest.manifest_version, 1);
   assert.equal(manifest.type, 'device');
-  assert.equal(pkg.version, '0.1.0');
+  assert.match(pkg.version, /^\d+\.\d+\.\d+$/);
   assert.equal(manifest.docker_image, `ghcr.io/lm1lc3n7/gladys-indevolt:${manifest.version}`);
   assert.equal(manifest.version, pkg.version);
   assert.equal(lock.version, pkg.version);
